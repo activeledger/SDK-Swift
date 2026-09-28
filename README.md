@@ -33,6 +33,13 @@ and the product to your target:
 .product(name: "Activeledger", package: "SDK-Swift")
 ```
 
+For Falcon-512 as well, add the add-on product (it brings the native Falcon
+code):
+
+```swift
+.product(name: "ActiveledgerFalcon", package: "SDK-Swift")
+```
+
 In Xcode: **File → Add Package Dependencies…** and paste the repository URL.
 
 ## Quick start
@@ -92,11 +99,26 @@ ec.key.privateKey   // keep this
 
 ### Post-quantum
 
-The key-type registry, seed derivation and wire format for `ml-dsa-65` and
-`falcon-512` are already in place; the schemes themselves are supplied by a
-liboqs-backed add-on and registered with `PostQuantum.register`.
-`KeyType.preferredPostQuantum` resolves to Falcon-512 when that add-on is
-enabled and ML-DSA-65 otherwise, so the same code runs either way.
+Both schemes are backed by the vendored [PQClean](https://github.com/PQClean/PQClean)
+`clean` implementations — the same code liboqs wraps — so keys and signatures
+are byte-identical to the JavaScript and Dart SDKs, checked against the
+cross-language vectors. **ML-DSA-65 is built into the core** and always
+available. **Falcon-512 is the `ActiveledgerFalcon` add-on**, because it
+carries native code; enable it once at startup:
+
+```swift
+import Activeledger
+import ActiveledgerFalcon
+
+ActiveledgerFalcon.enable()   // once, at startup
+let key = try keys.generateKey("me", type: .preferredPostQuantum)  // Falcon-512
+```
+
+`KeyType.preferredPostQuantum` resolves to Falcon-512 once the add-on is
+enabled and ML-DSA-65 otherwise, so the same code runs either way. Key
+generation is deterministic from the derived seed (ML-DSA reads a 32-byte ξ,
+Falcon a 48-byte seed expanded with SHAKE-256), which is what makes one
+recovery phrase reproduce the same post-quantum identity in every SDK.
 **Requires Activeledger 4.7.0+** on the network side.
 
 ---
