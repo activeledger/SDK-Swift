@@ -65,6 +65,11 @@ let package = Package(
             name: "ActiveledgerFalcon",
             dependencies: ["Activeledger", "CFalcon"]),
 
+        // A runnable end-to-end demo: `swift run Example [nodeURL] [keyType]`.
+        .executableTarget(
+            name: "Example",
+            dependencies: ["Activeledger", "ActiveledgerFalcon"]),
+
         .testTarget(
             name: "ActiveledgerTests",
             dependencies: ["Activeledger", "ActiveledgerFalcon"]),
