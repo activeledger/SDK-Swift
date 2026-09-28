@@ -22,6 +22,12 @@ public protocol PostQuantumScheme {
 
     /// The exact seed length this scheme derives a key from.
     var seedSize: Int { get }
+
+    /// The public-key length in bytes (1952 for ML-DSA-65, 897 for Falcon-512).
+    var publicKeyBytes: Int { get }
+
+    /// The private-key length in bytes (4032 for ML-DSA-65, 1281 for Falcon-512).
+    var privateKeyBytes: Int { get }
 }
 
 /// Process-wide registry of the available post-quantum schemes.
