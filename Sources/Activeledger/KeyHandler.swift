@@ -59,6 +59,23 @@ public struct KeyHandler {
                    phrase: phrase)
     }
 
+    /// Onboard `key` - create its identity on the ledger - and set
+    /// `key.identity` to the new stream id. Throws `ActiveledgerError.onboard`
+    /// if the ledger did not create a stream.
+    @discardableResult
+    public func onboardKey(_ key: Key, connection: Connection, contract: String = "onboard",
+                           namespace: String = "default") async throws -> LedgerResponse {
+        let handler = TransactionHandler(crypto: crypto)
+        let tx = try handler.buildOnboardKeyTx(key, contract: contract, namespace: namespace)
+        let response = try await handler.sendTransaction(tx, connection: connection)
+        guard let first = response.created.first else {
+            let detail = response.errors.isEmpty ? "" : ": \(response.errors.joined(separator: "; "))"
+            throw ActiveledgerError.onboard(message: "Onboarding \"\(key.name)\" created no identity\(detail)")
+        }
+        key.identity = first.id
+        return response
+    }
+
     /// Write `key` to `<location>/<name ?? key.name>.json` in the JavaScript
     /// SDK's key file format. The file contains the private key.
     public func exportKey(_ key: Key, to location: String, createDir: Bool = false,
