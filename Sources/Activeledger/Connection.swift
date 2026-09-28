@@ -1,6 +1,13 @@
 import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
+// On Linux, swift-corelibs-foundation's URLSession cannot reliably POST a body
+// (it fails with "Failure writing output to destination"), so HTTP goes through
+// AsyncHTTPClient instead. These are linked on Linux only - Apple platforms use
+// URLSession and never compile or link swift-nio.
+import AsyncHTTPClient
+import NIOCore
+import NIOFoundationCompat
 #endif
 
 /// A connection to one Activeledger node.
@@ -41,20 +48,10 @@ public struct Connection {
     }
 
     private func send(_ body: String) async throws -> LedgerResponse {
-        var request = URLRequest(url: baseURL)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        // Send the body with uploadTask rather than setting request.httpBody and
-        // calling data(for:). On Linux (swift-corelibs-foundation) a POST whose
-        // body is set that way fails with "Failure writing output to
-        // destination"; uploadTask delivers the body correctly on every
-        // platform, macOS and iOS included.
-        let (data, response) = try await Connection.upload(Data(body.utf8), for: request,
-                                                           using: session)
+        let (data, status) = try await post(Data(body.utf8))
         let text = String(decoding: data, as: UTF8.self)
-        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-            throw ActiveledgerError.http(statusCode: http.statusCode, body: text)
+        if !(200..<300).contains(status) {
+            throw ActiveledgerError.http(statusCode: status, body: text)
         }
         guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw ActiveledgerError.ledger("Unexpected ledger response: \(text)")
@@ -62,9 +59,46 @@ public struct Connection {
         return LedgerResponse(raw: obj)
     }
 
-    /// POST `body` via `uploadTask`, bridged to async. The completion-handler
-    /// upload API is the one path that reliably sends a request body on both
-    /// Apple platforms and Linux.
+    /// POST `body` to the node, returning the response body and status code.
+    private func post(_ body: Data) async throws -> (Data, Int) {
+        #if canImport(FoundationNetworking)
+        var request = HTTPClientRequest(url: baseURL.absoluteString)
+        request.method = .POST
+        request.headers.add(name: "Content-Type", value: "application/json")
+        request.body = .bytes(ByteBuffer(bytes: body))
+        let response = try await HTTPClient.shared.execute(request, timeout: .seconds(30))
+        let buffer = try await response.body.collect(upTo: Connection.maxResponseBytes)
+        return (Data(buffer: buffer), Int(response.status.code))
+        #else
+        var request = URLRequest(url: baseURL)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let (data, response) = try await Connection.upload(body, for: request, using: session)
+        return (data, (response as? HTTPURLResponse)?.statusCode ?? 200)
+        #endif
+    }
+
+    /// A raw GET, used only by the integration tests to read a node's storage
+    /// service. Not part of the public API - the SDK deliberately has no storage
+    /// endpoint - and it shares the platform-correct HTTP path so the tests work
+    /// on Linux too.
+    func getData(from url: URL) async throws -> (Data, Int) {
+        #if canImport(FoundationNetworking)
+        var request = HTTPClientRequest(url: url.absoluteString)
+        request.method = .GET
+        let response = try await HTTPClient.shared.execute(request, timeout: .seconds(30))
+        let buffer = try await response.body.collect(upTo: Connection.maxResponseBytes)
+        return (Data(buffer: buffer), Int(response.status.code))
+        #else
+        let (data, response) = try await session.data(from: url)
+        return (data, (response as? HTTPURLResponse)?.statusCode ?? 200)
+        #endif
+    }
+
+    private static let maxResponseBytes = 32 * 1024 * 1024
+
+    #if !canImport(FoundationNetworking)
+    /// POST `body` via `uploadTask`, bridged to async (Apple platforms).
     private static func upload(_ body: Data, for request: URLRequest,
                               using session: URLSession) async throws -> (Data, URLResponse) {
         try await withCheckedThrowingContinuation { continuation in
@@ -81,6 +115,7 @@ public struct Connection {
             task.resume()
         }
     }
+    #endif
 }
 
 /// The ledger's reply to a submitted transaction.

@@ -59,7 +59,7 @@ final class LiveNetworkTests: XCTestCase {
         XCTAssertTrue(onboard.committed, "\(label) onboard rejected: \(onboard.raw)")
         let identity = try XCTUnwrap(key.identity)
         XCTAssertFalse(identity.isEmpty)
-        try await assertLedgerRecorded(key)
+        try await assertLedgerRecorded(key, connection: ledger.connection)
 
         // A stream-keyed transaction, signed by the onboarded identity.
         let streamTx = Transaction(tx: .object([
@@ -100,7 +100,7 @@ final class LiveNetworkTests: XCTestCase {
     /// reachable because this is a local test network - and checks the ledger
     /// stored the type and public key byte-for-byte. Skipped if AL_STORAGE is
     /// unset. Fails if the meta never appears.
-    private func assertLedgerRecorded(_ key: Key) async throws {
+    private func assertLedgerRecorded(_ key: Key, connection: Connection) async throws {
         guard let storageEnv else { return }
         let storage = String(storageEnv.split(separator: ",").first ?? Substring(storageEnv))
         let identity = try XCTUnwrap(key.identity)
@@ -109,8 +109,8 @@ final class LiveNetworkTests: XCTestCase {
 
         let deadline = Date().addingTimeInterval(15)
         while Date() < deadline {
-            let (data, response) = try await URLSession.shared.data(from: url)
-            if let http = response as? HTTPURLResponse, http.statusCode == 200,
+            let (data, status) = try await connection.getData(from: url)
+            if status == 200,
                let doc = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let authorities = doc["authorities"] as? [[String: Any]], let first = authorities.first {
                 XCTAssertEqual(first["type"] as? String, key.type.wire)
