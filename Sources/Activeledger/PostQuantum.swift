@@ -35,8 +35,15 @@ public enum PostQuantum {
     private static var schemes: [KeyType: PostQuantumScheme] = [:]
     private static let lock = NSLock()
 
-    /// Register `scheme` for `type`. Called once at startup (the core does
-    /// this for ML-DSA-65; the Falcon add-on for Falcon-512).
+    /// Install the built-in schemes once. ML-DSA-65 is always present, as in
+    /// every Activeledger SDK; Falcon-512 comes from the add-on. The caller
+    /// must hold `lock`. A scheme already registered (a custom one) is kept.
+    private static func ensureBuiltins() {
+        if schemes[.mlDsa65] == nil { schemes[.mlDsa65] = MLDSA65Scheme() }
+    }
+
+    /// Register `scheme` for `type`. Called at startup by the Falcon add-on;
+    /// also replaces the built-in ML-DSA-65 with a custom implementation.
     public static func register(_ scheme: PostQuantumScheme, for type: KeyType) {
         lock.lock(); defer { lock.unlock() }
         schemes[type] = scheme
@@ -45,12 +52,14 @@ public enum PostQuantum {
     /// Whether an implementation for `type` is present in this process.
     public static func isAvailable(_ type: KeyType) -> Bool {
         lock.lock(); defer { lock.unlock() }
+        ensureBuiltins()
         return schemes[type] != nil
     }
 
     /// The registered scheme for `type`, or throws `keyTypeUnavailable`.
     public static func scheme(for type: KeyType) throws -> PostQuantumScheme {
         lock.lock(); defer { lock.unlock() }
+        ensureBuiltins()
         guard let s = schemes[type] else {
             throw ActiveledgerError.keyTypeUnavailable(
                 "\(type.wire) is not available in this process"
