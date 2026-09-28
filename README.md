@@ -278,6 +278,22 @@ swift test
 The unit tests run against the cross-language vectors under `vectors/`, the
 same fixtures the JavaScript and Dart SDKs use.
 
+### Live network
+
+`LiveNetworkTests` runs the full lifecycle - onboard, stream-keyed and labelled
+transactions, a rejected tamper, and phrase recovery - against real nodes, for
+each key type. It skips unless `AL_NODES` is set, so `swift test` works with no
+ledger. Start the four-node network from an `activeledger` checkout with
+`npm run test:network:serve`, then, with the URLs it prints:
+
+```bash
+AL_NODES=http://localhost:5510 AL_STORAGE=http://localhost:5509 \
+  swift test --filter LiveNetworkTests
+```
+
+`AL_STORAGE` is optional; when set, the tests also confirm the ledger stored
+each identity's type and public key byte-for-byte.
+
 ## Licence
 
 MIT
