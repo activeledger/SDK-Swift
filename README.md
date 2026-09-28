@@ -272,7 +272,7 @@ did not write.
 ## Testing
 
 ```bash
-swift test
+swift test        # or: make test
 ```
 
 The unit tests run against the cross-language vectors under `vectors/`, the
@@ -287,6 +287,8 @@ ledger. Start the four-node network from an `activeledger` checkout with
 `npm run test:network:serve`, then, with the URLs it prints:
 
 ```bash
+make test-live AL_NODES=http://localhost:5510 AL_STORAGE=http://localhost:5509
+# or, without make:
 AL_NODES=http://localhost:5510 AL_STORAGE=http://localhost:5509 \
   swift test --filter LiveNetworkTests
 ```
