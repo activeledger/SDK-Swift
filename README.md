@@ -42,6 +42,12 @@ code):
 
 In Xcode: **File → Add Package Dependencies…** and paste the repository URL.
 
+On Apple platforms the SDK uses `URLSession`. On Linux it uses
+[AsyncHTTPClient](https://github.com/swift-server/async-http-client) instead,
+because swift-corelibs-foundation's `URLSession` cannot reliably POST a request
+body there - so a Linux build additionally pulls in swift-nio. Apple builds do
+not compile or link it.
+
 ## Quick start
 
 ```swift
@@ -272,7 +278,7 @@ did not write.
 ## Testing
 
 ```bash
-swift test
+swift test        # or: make test
 ```
 
 The unit tests run against the cross-language vectors under `vectors/`, the
@@ -287,6 +293,8 @@ ledger. Start the four-node network from an `activeledger` checkout with
 `npm run test:network:serve`, then, with the URLs it prints:
 
 ```bash
+make test-live AL_NODES=http://localhost:5510 AL_STORAGE=http://localhost:5509
+# or, without make:
 AL_NODES=http://localhost:5510 AL_STORAGE=http://localhost:5509 \
   swift test --filter LiveNetworkTests
 ```
