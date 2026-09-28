@@ -42,6 +42,12 @@ code):
 
 In Xcode: **File → Add Package Dependencies…** and paste the repository URL.
 
+On Apple platforms the SDK uses `URLSession`. On Linux it uses
+[AsyncHTTPClient](https://github.com/swift-server/async-http-client) instead,
+because swift-corelibs-foundation's `URLSession` cannot reliably POST a request
+body there - so a Linux build additionally pulls in swift-nio. Apple builds do
+not compile or link it.
+
 ## Quick start
 
 ```swift
