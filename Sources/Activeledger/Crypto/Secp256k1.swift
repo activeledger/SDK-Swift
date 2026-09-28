@@ -56,7 +56,7 @@ public enum Secp256k1 {
     /// Sign `message` (RFC 6979, low-S), returning DER bytes.
     public static func sign(_ message: Data, privateScalar: [UInt8]) throws -> [UInt8] {
         let key = try P256K.Signing.PrivateKey(dataRepresentation: Data(privateScalar))
-        let signature = try key.signature(for: message)
+        let signature = key.signature(for: message)
         return [UInt8](signature.derRepresentation)
     }
 

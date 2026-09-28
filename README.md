@@ -275,6 +275,21 @@ did not write.
 
 ---
 
+## Runnable example
+
+`Sources/Example` is a small end-to-end program - connect, generate a key,
+onboard, send a transaction - that compiles as part of the package, so it can
+never drift from the API:
+
+```bash
+swift run Example                                   # secp256k1, default node
+swift run Example http://127.0.0.1:5510             # a URL your node prints
+swift run Example http://127.0.0.1:5510 falcon-512  # a post-quantum identity
+```
+
+It needs a running node; if it can't reach one it prints how to start a local
+Activeledger network (`npm run test:network:serve`).
+
 ## Testing
 
 ```bash
