@@ -8,6 +8,7 @@ private struct PhraseVector: Codable {
     let passphrase: String?
     let bip39Seed: String
     let derivedSeed: String
+    let scheme: String?
 }
 private struct SeedVector: Codable {
     let type: String
@@ -33,6 +34,13 @@ final class RecoveryTests: XCTestCase {
         let vs = try file().phraseVectors
         XCTAssertFalse(vs.isEmpty)
         for v in vs {
+            // The legacy scheme is SHA256(phrase) used directly as the seed -
+            // recovery only, no BIP-39 seed step.
+            if v.scheme == "legacy" {
+                XCTAssertEqual(hex(Recovery.legacySeed(v.phrase)), v.derivedSeed,
+                               "\(v.type)/\(v.phraseName): legacy seed")
+                continue
+            }
             let type = try KeyType.fromWire(v.type)
             let seed = try Recovery.toSeed(v.phrase, passphrase: v.passphrase ?? "")
             XCTAssertEqual(hex(seed), v.bip39Seed, "\(v.type)/\(v.phraseName): BIP-39 seed")
