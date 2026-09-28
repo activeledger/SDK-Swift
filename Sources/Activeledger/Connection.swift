@@ -44,9 +44,14 @@ public struct Connection {
         var request = URLRequest(url: baseURL)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = Data(body.utf8)
 
-        let (data, response) = try await session.data(for: request)
+        // Send the body with uploadTask rather than setting request.httpBody and
+        // calling data(for:). On Linux (swift-corelibs-foundation) a POST whose
+        // body is set that way fails with "Failure writing output to
+        // destination"; uploadTask delivers the body correctly on every
+        // platform, macOS and iOS included.
+        let (data, response) = try await Connection.upload(Data(body.utf8), for: request,
+                                                           using: session)
         let text = String(decoding: data, as: UTF8.self)
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             throw ActiveledgerError.http(statusCode: http.statusCode, body: text)
@@ -55,6 +60,26 @@ public struct Connection {
             throw ActiveledgerError.ledger("Unexpected ledger response: \(text)")
         }
         return LedgerResponse(raw: obj)
+    }
+
+    /// POST `body` via `uploadTask`, bridged to async. The completion-handler
+    /// upload API is the one path that reliably sends a request body on both
+    /// Apple platforms and Linux.
+    private static func upload(_ body: Data, for request: URLRequest,
+                              using session: URLSession) async throws -> (Data, URLResponse) {
+        try await withCheckedThrowingContinuation { continuation in
+            let task = session.uploadTask(with: request, from: body) { data, response, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else if let data, let response {
+                    continuation.resume(returning: (data, response))
+                } else {
+                    continuation.resume(throwing: ActiveledgerError.ledger(
+                        "No response received from the node"))
+                }
+            }
+            task.resume()
+        }
     }
 }
 
