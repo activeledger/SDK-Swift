@@ -30,7 +30,7 @@ import Foundation
 /// `returnToRemote`, which arrive in ``LedgerResponse/responses``.
 public struct Activeledger {
     /// The SDK version.
-    public static let version = "1.0.0"
+    public static let version = "1.0.2"
 
     /// The node transactions are sent to.
     public let connection: Connection
