@@ -15,7 +15,7 @@ same handlers (`KeyHandler`, `TransactionHandler`, `PayloadHandler`,
 `Connection`), the same key file format, and byte-for-byte the same
 signatures, checked against the JavaScript SDK's cross-language vectors.
 
-Requires Swift 5.9+ and a platform with `swift-crypto` (macOS, iOS, Linux).
+Requires Swift 5.9+ and one of: iOS 15, macOS 12, tvOS 15, watchOS 8, or Linux.
 
 ---
 
@@ -24,7 +24,7 @@ Requires Swift 5.9+ and a platform with `swift-crypto` (macOS, iOS, Linux).
 Swift Package Manager - add the dependency to `Package.swift`:
 
 ```swift
-.package(url: "https://github.com/activeledger/SDK-Swift.git", from: "1.0.0")
+.package(url: "https://github.com/activeledger/SDK-Swift.git", from: "1.0.2")
 ```
 
 and the product to your target:
@@ -138,9 +138,9 @@ let key = try keys.generateBip39Key("me")
 print(key.phrase!)                                        // 12 words - store them
 
 let same = try keys.restoreBip39Key("me", phrase: key.phrase!)
-let withPass = try keys.restoreBip39Key("me", phrase: phrase, passphrase: "extra words")
+let withPass = try keys.restoreBip39Key("me", phrase: key.phrase!, passphrase: "extra words")
 
-let fromSeed = try keys.generateKeyFromSeed("me", seed: seed32)
+let fromSeed = try keys.generateKeyFromSeed("me", seed: [UInt8](repeating: 7, count: 32))   // 32 bytes; falcon-512 takes 48
 ```
 
 The same seed gives the same identity in **every** Activeledger SDK, which
@@ -182,8 +182,8 @@ let tx = try transactions.labelledTransaction(
     inputLabel: "input",
     stream: key.identity!,
     inputData: .object([("message", .string("hello"))]),
-    outputs: .object([("target-stream", .object([("amount", .integer(10))]))]),
-    entry: "update")                  // optional $entry
+    entry: "update",                  // optional $entry
+    outputs: .object([("target-stream", .object([("amount", .integer(10))]))]))
 
 let response = try await ledger.send(tx)
 if !response.committed { throw ActiveledgerError.ledger(response.errors.joined(separator: "; ")) }
