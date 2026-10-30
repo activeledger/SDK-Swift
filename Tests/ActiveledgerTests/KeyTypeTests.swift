@@ -27,9 +27,12 @@ final class KeyTypeTests: XCTestCase {
         XCTAssertFalse(KeyType.rsa.isPostQuantum)
     }
 
-    func testPreferredPostQuantumDefaultsToMLDSA() {
-        // With no Falcon scheme registered (core only), preferred is ML-DSA-65.
-        XCTAssertEqual(KeyType.preferredPostQuantum, .mlDsa65)
-        XCTAssertFalse(PostQuantum.isAvailable(.falcon512))
+    // Falcon registration is process-global (ActiveledgerFalcon.enable() in
+    // PostQuantumTests), so assert the rule rather than one registry state.
+    func testPreferredPostQuantumFollowsFalconAvailability() {
+        let expected: KeyType = PostQuantum.isAvailable(.falcon512) ? .falcon512 : .mlDsa65
+        XCTAssertEqual(KeyType.preferredPostQuantum, expected)
+        XCTAssertTrue(PostQuantum.isAvailable(.mlDsa65))
+        XCTAssertTrue(KeyType.preferredPostQuantum.isPostQuantum)
     }
 }
