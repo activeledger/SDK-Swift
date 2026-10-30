@@ -85,6 +85,21 @@ final class LoopbackNetworkTests: XCTestCase {
 
     // MARK: non-2xx and malformed replies
 
+    func testRefusedPortFailsFastRatherThanWaitingForTheRequestTimeout() async throws {
+        // A port that was just listening and no longer is: nothing will accept.
+        let server = try serve(Self.committed)
+        let url = server.url
+        server.stop()
+        let connection = try Connection(url: url)
+
+        let start = Date()
+        do {
+            _ = try await connection.sendEnvelope(.object([("$tx", .string("x"))]))
+            XCTFail("a refused connection must throw")
+        } catch {}
+        XCTAssertLessThan(Date().timeIntervalSince(start), 10) // 30 s before the connect timeout
+    }
+
     func testNon2xxThrowsHTTPErrorWithStatusAndBody() async throws {
         for (status, body) in [(500, "boom"), (404, #"{"error":"nope"}"#), (503, "")] {
             let server = try serve(body, status: status)

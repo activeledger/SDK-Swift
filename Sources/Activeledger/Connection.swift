@@ -66,7 +66,7 @@ public struct Connection {
         request.method = .POST
         request.headers.add(name: "Content-Type", value: "application/json")
         request.body = .bytes(ByteBuffer(bytes: body))
-        let response = try await HTTPClient.shared.execute(request, timeout: .seconds(30))
+        let response = try await Connection.httpClient.execute(request, timeout: .seconds(30))
         let buffer = try await response.body.collect(upTo: Connection.maxResponseBytes)
         return (Data(buffer: buffer), Int(response.status.code))
         #else
@@ -86,7 +86,7 @@ public struct Connection {
         #if canImport(FoundationNetworking)
         var request = HTTPClientRequest(url: url.absoluteString)
         request.method = .GET
-        let response = try await HTTPClient.shared.execute(request, timeout: .seconds(30))
+        let response = try await Connection.httpClient.execute(request, timeout: .seconds(30))
         let buffer = try await response.body.collect(upTo: Connection.maxResponseBytes)
         return (Data(buffer: buffer), Int(response.status.code))
         #else
@@ -96,6 +96,20 @@ public struct Connection {
     }
 
     private static let maxResponseBytes = 32 * 1024 * 1024
+
+    #if canImport(FoundationNetworking)
+    /// AsyncHTTPClient keeps retrying a failed connect until the request's own
+    /// deadline, so on the shared client a refused port would hang for the whole
+    /// 30 s request timeout. `timeout.connect` also bounds how long a request
+    /// waits for a connection, so a short one makes an unreachable node fail
+    /// fast while the request timeout still covers a slow response. Never shut
+    /// down, like `HTTPClient.shared`.
+    private static let httpClient: HTTPClient = {
+        var configuration = HTTPClient.Configuration()
+        configuration.timeout = .init(connect: .seconds(5))
+        return HTTPClient(eventLoopGroupProvider: .singleton, configuration: configuration)
+    }()
+    #endif
 
     #if !canImport(FoundationNetworking)
     /// POST `body` via `uploadTask`, bridged to async (Apple platforms).
