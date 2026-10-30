@@ -77,6 +77,102 @@ final class PEMKeyTests: XCTestCase {
         XCTAssertThrowsError(try crypto.sign(msg, privateKey: pem("RSA PRIVATE KEY", der(0x30, ints)), type: .rsa))
     }
 
+    // A structurally valid 2048-bit-modulus key to mutate one thing at a time.
+    private let modulus: [UInt8] = [0x00, 0xC0] + [UInt8](repeating: 0x55, count: 254) + [0x01]
+    private let rsaOID: [UInt8] = [0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x01]
+
+    private func rsaPublicDER(n: [UInt8]? = nil, e: [UInt8] = [0x01, 0x00, 0x01]) -> [UInt8] {
+        der(0x30, der(0x02, n ?? modulus) + der(0x02, e))
+    }
+
+    private func spki(params: [UInt8] = [0x05, 0x00], key: [UInt8]? = nil, tail: [UInt8] = []) -> [UInt8] {
+        der(0x30, der(0x30, rsaOID + params) + der(0x03, [0x00] + (key ?? rsaPublicDER())) + tail)
+    }
+
+    func testGuardAcceptsTheBaselineAndRejectsEachSingleMutation() {
+        func algorithm(_ bytes: [UInt8]) -> PEMGuard.Algorithm? {
+            PEMGuard.algorithm(of: pem("PUBLIC KEY", bytes))
+        }
+        XCTAssertEqual(algorithm(spki()), .rsa)
+        XCTAssertEqual(algorithm(spki(params: [])), .rsa) // absent parameters are allowed
+
+        XCTAssertNil(algorithm(spki(params: [0x05, 0x01, 0x00])), "NULL with content")
+        XCTAssertNil(algorithm(spki(params: [0x04, 0x00])), "non-NULL parameters")
+        XCTAssertNil(algorithm(spki(params: [0x05, 0x00, 0x05, 0x00])), "extra parameters")
+        XCTAssertNil(algorithm(spki(params: [0x02, 0x01, 0x00])), "INTEGER parameters")
+        XCTAssertNil(algorithm(spki(key: rsaPublicDER(n: [0x00]))), "zero modulus")
+        XCTAssertNil(algorithm(spki(key: rsaPublicDER(n: [0x03]))), "tiny modulus")
+        XCTAssertNil(algorithm(spki(key: rsaPublicDER(n: [0x00, 0xC0] + [UInt8](repeating: 0x55, count: 254) + [0x00]))),
+                     "even modulus")
+        XCTAssertNil(algorithm(spki(key: rsaPublicDER(n: [0x00, 0x80] + [UInt8](repeating: 0x55, count: 2100) + [0x01]))),
+                     "oversized modulus")
+        XCTAssertNil(algorithm(spki(key: rsaPublicDER(n: [0xC0] + [UInt8](repeating: 0x55, count: 255)))),
+                     "negative modulus")
+        XCTAssertNil(algorithm(spki(key: rsaPublicDER(e: [0x00]))), "zero exponent")
+        XCTAssertNil(algorithm(spki(key: rsaPublicDER(e: [0x01]))), "exponent 1")
+        XCTAssertNil(algorithm(spki(key: rsaPublicDER(e: [0x80, 0x01]))), "negative exponent")
+        XCTAssertNil(algorithm(spki(key: rsaPublicDER(e: [0x00, 0x00, 0x01]))), "non-minimal exponent")
+        XCTAssertNil(algorithm(spki(key: rsaPublicDER() + [0x00])), "trailing byte inside the key")
+        XCTAssertNil(algorithm(spki(tail: [0x00])), "trailing byte in the SPKI")
+        XCTAssertNil(algorithm(spki() + [0x00]), "trailing byte after the SPKI")
+        XCTAssertNil(algorithm(spki(key: [0x30, 0x80, 0x02, 0x01, 0x03, 0x00, 0x00])), "indefinite length")
+        XCTAssertNil(algorithm(spki(key: [0x30, 0x84, 0xFF, 0xFF, 0xFF, 0xFF])), "oversized length")
+        XCTAssertNil(algorithm(spki(key: [0x30, 0x81, 0x05] + [UInt8](rsaPublicDER().prefix(5)))), "non-minimal length")
+        XCTAssertNil(algorithm(spki(key: Array(rsaPublicDER().dropLast(3)))), "truncated INTEGER")
+    }
+
+    func testGuardChecksPKCS8AndPKCS1PrivateKeyStructure() {
+        func privateDER(version: [UInt8] = [0], n: [UInt8]? = nil, d: [UInt8] = [0x07]) -> [UInt8] {
+            der(0x30, der(0x02, version) + der(0x02, n ?? modulus) + der(0x02, [0x01, 0x00, 0x01]) + der(0x02, d)
+                + (0..<5).flatMap { _ in der(0x02, [0x07]) })
+        }
+        func pkcs8(params: [UInt8] = [0x05, 0x00], key: [UInt8]) -> [UInt8] {
+            der(0x30, der(0x02, [0]) + der(0x30, rsaOID + params) + der(0x04, key))
+        }
+        XCTAssertEqual(PEMGuard.algorithm(of: pem("RSA PRIVATE KEY", privateDER())), .rsa)
+        XCTAssertEqual(PEMGuard.algorithm(of: pem("PRIVATE KEY", pkcs8(key: privateDER()))), .rsa)
+
+        XCTAssertNil(PEMGuard.algorithm(of: pem("RSA PRIVATE KEY", privateDER(version: [1]))))
+        XCTAssertNil(PEMGuard.algorithm(of: pem("RSA PRIVATE KEY", privateDER(n: [0x00]))), "zero modulus")
+        XCTAssertNil(PEMGuard.algorithm(of: pem("RSA PRIVATE KEY", privateDER(d: [0x00]))), "zero private exponent")
+        XCTAssertNil(PEMGuard.algorithm(of: pem("RSA PRIVATE KEY", privateDER() + [0x00])), "trailing byte")
+        XCTAssertNil(PEMGuard.algorithm(of: pem("PRIVATE KEY", pkcs8(params: [0x04, 0x00], key: privateDER()))))
+        XCTAssertNil(PEMGuard.algorithm(of: pem("PRIVATE KEY", pkcs8(params: [0x05, 0x00, 0x05, 0x00], key: privateDER()))))
+        XCTAssertNil(PEMGuard.algorithm(of: pem("PRIVATE KEY", pkcs8(key: privateDER() + [0x00]))), "trailing inside OCTET STRING")
+        XCTAssertNil(PEMGuard.algorithm(of: pem("PRIVATE KEY", pkcs8(key: [0x30, 0x00]))), "empty key SEQUENCE")
+    }
+
+    func testGuardRejectsWhatTwoParsersCouldReadDifferently() {
+        let b64 = Data(spki()).base64EncodedString()
+        let framed = "-----BEGIN PUBLIC KEY-----\n\(b64)\n-----END PUBLIC KEY-----"
+        XCTAssertEqual(PEMGuard.algorithm(of: framed), .rsa)
+        XCTAssertEqual(PEMGuard.algorithm(of: framed.replacingOccurrences(of: "\n", with: "\r\n")), .rsa)
+
+        for (name, bad) in [
+            ("NEL newline", "-----BEGIN PUBLIC KEY-----\u{85}\(b64)\u{85}-----END PUBLIC KEY-----"),
+            ("line separator", "-----BEGIN PUBLIC KEY-----\u{2028}\(b64)\u{2028}-----END PUBLIC KEY-----"),
+            ("no-break space in the body", framed.replacingOccurrences(of: "A", with: "\u{A0}")),
+            ("zero-width space", "-----BEGIN PUBLIC KEY-----\n\u{200B}\(b64)\n-----END PUBLIC KEY-----"),
+            ("NUL", "-----BEGIN PUBLIC KEY-----\n\(b64)\u{0}\n-----END PUBLIC KEY-----"),
+            ("tab", "-----BEGIN PUBLIC KEY-----\n\(b64)\t\n-----END PUBLIC KEY-----"),
+            ("garbage before", "junk\n" + framed),
+            ("garbage after", framed + "\njunk"),
+            ("second block", framed + "\n" + framed),
+        ] {
+            XCTAssertNil(PEMGuard.algorithm(of: bad), name)
+            XCTAssertFalse(crypto.verify(msg, signature: PEMFixtures.rsaSignature, publicKey: bad, type: .rsa), name)
+        }
+    }
+
+    func testCanonicalPEMIsWhatSwiftCryptoGets() throws {
+        // Differently armoured copies of one key verify identically.
+        let body = PEMFixtures.rsaPublic.split(separator: "\n").filter { !$0.hasPrefix("-----") }.joined()
+        let oneLine = "-----BEGIN PUBLIC KEY-----\r\n\(body)\r\n-----END PUBLIC KEY-----\r\n"
+        XCTAssertTrue(crypto.verify(msg, signature: PEMFixtures.rsaSignature, publicKey: oneLine, type: .rsa))
+        let key = try XCTUnwrap(PEMGuard.validate(oneLine))
+        XCTAssertEqual(key.canonicalPEM, PEMGuard.validate(PEMFixtures.rsaPublic)?.canonicalPEM)
+    }
+
     func testWellFormedPEMFixturesAreRecognised() {
         XCTAssertEqual(PEMGuard.algorithm(of: PEMFixtures.rsaPublic), .rsa)
         XCTAssertEqual(PEMGuard.algorithm(of: PEMFixtures.rsaPKCS8Private), .rsa)

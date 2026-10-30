@@ -83,15 +83,15 @@ public struct DefaultCryptoProvider: CryptoProvider {
         if looksLikePem(privateKey) {
             // Sign with whatever the PEM actually holds: a legacy identity's
             // type string is not always accurate.
-            guard let algorithm = PEMGuard.algorithm(of: privateKey) else {
+            guard let key = PEMGuard.validate(privateKey) else {
                 throw ActiveledgerError.invalidArgument("The private key is not a well-formed PEM key")
             }
-            if algorithm == .rsa {
-                let rsa = try _RSA.Signing.PrivateKey(pemRepresentation: privateKey)
+            if key.algorithm == .rsa {
+                let rsa = try _RSA.Signing.PrivateKey(pemRepresentation: key.canonicalPEM)
                 let sig = try rsa.signature(for: message, padding: .insecurePKCS1v1_5)
                 return sig.rawRepresentation.base64EncodedString()
             }
-            let ec = try P256K.Signing.PrivateKey(pemRepresentation: privateKey)
+            let ec = try P256K.Signing.PrivateKey(pemRepresentation: key.canonicalPEM)
             let der = try Secp256k1.sign(message, privateScalar: [UInt8](ec.dataRepresentation))
             return Data(der).base64EncodedString()
         }
@@ -114,14 +114,14 @@ public struct DefaultCryptoProvider: CryptoProvider {
             }
             if looksLikePem(publicKey) {
                 // Only well-formed DER may reach swift-crypto: see PEMGuard.
-                guard let algorithm = PEMGuard.algorithm(of: publicKey) else { return false }
-                if algorithm == .rsa {
-                    let rsa = try _RSA.Signing.PublicKey(pemRepresentation: publicKey)
+                guard let key = PEMGuard.validate(publicKey) else { return false }
+                if key.algorithm == .rsa {
+                    let rsa = try _RSA.Signing.PublicKey(pemRepresentation: key.canonicalPEM)
                     return rsa.isValidSignature(
                         _RSA.Signing.RSASignature(rawRepresentation: sig),
                         for: message, padding: .insecurePKCS1v1_5)
                 }
-                let ec = try P256K.Signing.PublicKey(pemRepresentation: publicKey)
+                let ec = try P256K.Signing.PublicKey(pemRepresentation: key.canonicalPEM)
                 return Secp256k1.verify(message, der: [UInt8](sig), publicKey: [UInt8](ec.dataRepresentation))
             }
             if type == .rsa { return false }
