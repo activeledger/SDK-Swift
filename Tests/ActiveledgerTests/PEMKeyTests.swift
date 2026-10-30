@@ -35,11 +35,90 @@ final class PEMKeyTests: XCTestCase {
 
     func testRSAVerifyIsFalseForMalformedInput() {
         XCTAssertFalse(crypto.verify(msg, signature: "not base64!!", publicKey: PEMFixtures.rsaPublic, type: .rsa))
-        // Not covered: a PEM-framed but undecodable public key. On Swift 6.1 / Linux
-        // swift-crypto aborts (Signal 6) inside _RSA.Signing.PublicKey(pemRepresentation:)
-        // reached from CryptoProvider.swift line 112, instead of throwing.
+        // PEM-framed but undecodable: swift-crypto aborts (Signal 6) on this, so
+        // PEMGuard must refuse it before it gets there.
+        XCTAssertFalse(crypto.verify(msg, signature: PEMFixtures.rsaSignature,
+                                     publicKey: "-----BEGIN PUBLIC KEY-----\nAAAA\n-----END PUBLIC KEY-----",
+                                     type: .rsa))
         XCTAssertFalse(crypto.verify(msg, signature: PEMFixtures.rsaSignature,
                                      publicKey: "0x04aa", type: .rsa))
+    }
+
+    func testMalformedPEMPublicKeysVerifyFalseWithoutReachingSwiftCrypto() {
+        for (name, pem) in malformedPEMs(label: "PUBLIC KEY", valid: PEMFixtures.rsaPublic) {
+            XCTAssertFalse(crypto.verify(msg, signature: PEMFixtures.rsaSignature, publicKey: pem, type: .rsa), name)
+            XCTAssertFalse(crypto.verify(msg, signature: PEMFixtures.rsaSignature, publicKey: pem, type: .secp256k1), name)
+        }
+    }
+
+    func testMalformedPEMPrivateKeysThrowOnSign() {
+        for (name, pem) in malformedPEMs(label: "PRIVATE KEY", valid: PEMFixtures.rsaPKCS8Private) {
+            XCTAssertThrowsError(try crypto.sign(msg, privateKey: pem, type: .rsa), name)
+            XCTAssertThrowsError(try crypto.sign(msg, privateKey: pem, type: .secp256k1), name)
+        }
+        for (name, pem) in malformedPEMs(label: "RSA PRIVATE KEY", valid: PEMFixtures.rsaPKCS1Private) {
+            XCTAssertThrowsError(try crypto.sign(msg, privateKey: pem, type: .rsa), name)
+        }
+        for (name, pem) in malformedPEMs(label: "EC PRIVATE KEY", valid: PEMFixtures.ecPrivate) {
+            XCTAssertThrowsError(try crypto.sign(msg, privateKey: pem, type: .secp256k1), name)
+        }
+    }
+
+    func testWellFormedButDegenerateRSAKeysAreRefusedNotFatal() throws {
+        // Valid DER, nonsense key: modulus 3, exponent 3.
+        let rsaPublic = der(0x30, der(0x02, [3]) + der(0x02, [3]))
+        let rsaOID: [UInt8] = [0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x01]
+        let spki = der(0x30, der(0x30, rsaOID + [0x05, 0x00]) + der(0x03, [0x00] + rsaPublic))
+        XCTAssertFalse(crypto.verify(msg, signature: PEMFixtures.rsaSignature,
+                                     publicKey: pem("PUBLIC KEY", spki), type: .rsa))
+        XCTAssertFalse(crypto.verify(msg, signature: PEMFixtures.rsaSignature,
+                                     publicKey: pem("RSA PUBLIC KEY", rsaPublic), type: .rsa))
+        let ints = [UInt8](repeating: 0, count: 0) + der(0x02, [0]) + (0..<8).flatMap { _ in der(0x02, [3]) }
+        XCTAssertThrowsError(try crypto.sign(msg, privateKey: pem("RSA PRIVATE KEY", der(0x30, ints)), type: .rsa))
+    }
+
+    func testWellFormedPEMFixturesAreRecognised() {
+        XCTAssertEqual(PEMGuard.algorithm(of: PEMFixtures.rsaPublic), .rsa)
+        XCTAssertEqual(PEMGuard.algorithm(of: PEMFixtures.rsaPKCS8Private), .rsa)
+        XCTAssertEqual(PEMGuard.algorithm(of: PEMFixtures.rsaPKCS1Private), .rsa)
+        XCTAssertEqual(PEMGuard.algorithm(of: PEMFixtures.ecPublic), .other)
+        XCTAssertEqual(PEMGuard.algorithm(of: PEMFixtures.ecPrivate), .other)
+    }
+
+    // MARK: PEM builders
+
+    private func der(_ tag: UInt8, _ content: [UInt8]) -> [UInt8] {
+        let n = content.count
+        let length: [UInt8] = n < 0x80 ? [UInt8(n)] : n < 0x100 ? [0x81, UInt8(n)]
+            : [0x82, UInt8(n >> 8), UInt8(n & 0xFF)]
+        return [tag] + length + content
+    }
+
+    private func pem(_ label: String, _ bytes: [UInt8]) -> String {
+        "-----BEGIN \(label)-----\n\(Data(bytes).base64EncodedString())\n-----END \(label)-----"
+    }
+
+    /// `valid` damaged in the ways a hostile or corrupt key file can be.
+    private func malformedPEMs(label: String, valid: String) -> [(String, String)] {
+        let body = valid.split(separator: "\n").filter { !$0.hasPrefix("-----") }.joined()
+        let bytes = [UInt8](Data(base64Encoded: body)!)
+        var wrongTag = bytes; wrongTag[0] = 0x31
+        var huge = bytes; huge.replaceSubrange(1..<min(4, huge.count), with: [0x84, 0xFF, 0xFF, 0xFF, 0xFF])
+        var overLong = bytes; overLong[1] = 0x82; overLong[2] = 0xFF; overLong[3] = 0xFF
+        return [
+            ("undecodable body", "-----BEGIN \(label)-----\nAAAA\n-----END \(label)-----"),
+            ("empty body", "-----BEGIN \(label)-----\n-----END \(label)-----"),
+            ("not base64", "-----BEGIN \(label)-----\n!!!!not base64!!!!\n-----END \(label)-----"),
+            ("truncated DER", pem(label, Array(bytes.prefix(bytes.count / 2)))),
+            ("one byte short", pem(label, Array(bytes.dropLast()))),
+            ("wrong tag", pem(label, wrongTag)),
+            ("trailing garbage", pem(label, bytes + [0xDE, 0xAD, 0xBE, 0xEF])),
+            ("huge length field", pem(label, huge)),
+            ("length beyond the data", pem(label, overLong)),
+            ("wrong label", pem("CERTIFICATE", bytes)),
+            ("mismatched END", "-----BEGIN \(label)-----\n\(body)\n-----END OTHER-----"),
+            ("no END", "-----BEGIN \(label)-----\n\(body)"),
+        ]
     }
 
     func testPEMDecidesTheAlgorithmNotTheDeclaredType() throws {

@@ -83,7 +83,11 @@ public struct DefaultCryptoProvider: CryptoProvider {
         if looksLikePem(privateKey) {
             // Sign with whatever the PEM actually holds: a legacy identity's
             // type string is not always accurate.
-            if let rsa = try? _RSA.Signing.PrivateKey(pemRepresentation: privateKey) {
+            guard let algorithm = PEMGuard.algorithm(of: privateKey) else {
+                throw ActiveledgerError.invalidArgument("The private key is not a well-formed PEM key")
+            }
+            if algorithm == .rsa {
+                let rsa = try _RSA.Signing.PrivateKey(pemRepresentation: privateKey)
                 let sig = try rsa.signature(for: message, padding: .insecurePKCS1v1_5)
                 return sig.rawRepresentation.base64EncodedString()
             }
@@ -109,7 +113,10 @@ public struct DefaultCryptoProvider: CryptoProvider {
                 return scheme.verify(sig, message: message, publicKey: try base64(publicKey, type, "public"))
             }
             if looksLikePem(publicKey) {
-                if let rsa = try? _RSA.Signing.PublicKey(pemRepresentation: publicKey) {
+                // Only well-formed DER may reach swift-crypto: see PEMGuard.
+                guard let algorithm = PEMGuard.algorithm(of: publicKey) else { return false }
+                if algorithm == .rsa {
+                    let rsa = try _RSA.Signing.PublicKey(pemRepresentation: publicKey)
                     return rsa.isValidSignature(
                         _RSA.Signing.RSASignature(rawRepresentation: sig),
                         for: message, padding: .insecurePKCS1v1_5)
