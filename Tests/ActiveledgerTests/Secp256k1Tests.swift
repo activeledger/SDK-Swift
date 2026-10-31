@@ -147,4 +147,9 @@ final class Secp256k1Tests: XCTestCase {
             XCTAssertTrue("\(error)".contains("not a point on the curve"), "\(error)")
         }
     }
+
+    func testToHexIsPrefixedLowercase() {
+        XCTAssertEqual(Secp256k1.toHex([]), "0x")
+        XCTAssertEqual(Secp256k1.toHex([0x00, 0x0f, 0xa0, 0xff]), "0x000fa0ff")
+    }
 }

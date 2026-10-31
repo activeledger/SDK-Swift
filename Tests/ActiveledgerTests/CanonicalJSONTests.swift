@@ -76,6 +76,13 @@ final class CanonicalJSONTests: XCTestCase {
         XCTAssertEqual(try canonicalJSON(.string("😀")), "\"😀\"")
     }
 
+    func testStringEscapingKeepsSurroundingText() throws {
+        // Escapes at the start, middle and end, around multi-byte text.
+        XCTAssertEqual(try canonicalJSON(.string("\"é😀\\x\u{1f}ü\n")),
+                       "\"\\\"é😀\\\\x\\u001fü\\n\"")
+        XCTAssertEqual(try canonicalJSON(.string("")), "\"\"")
+    }
+
     func testBytesAreUTF8() throws {
         let bytes = try canonicalJSONBytes(.object([("k", .string("v"))]))
         XCTAssertEqual(bytes, Data(#"{"k":"v"}"#.utf8))
