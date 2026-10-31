@@ -7,6 +7,8 @@
 
 # Activeledger SDK for Swift
 
+**Documentation:** [SDK guide](https://activeledger.github.io/activeledger/sdks/swift/) | [All SDKs](https://activeledger.github.io/activeledger/sdks/) | [Activeledger guide](https://activeledger.github.io/activeledger/)
+
 Swift and iOS SDK for [Activeledger](https://github.com/activeledger/activeledger),
 with post-quantum identity support.
 
