@@ -153,9 +153,17 @@ public struct LedgerResponse {
     public var responses: [Any] { raw["$responses"] as? [Any] ?? [] }
 
     /// Errors the network reported. Non-empty means the transaction did NOT
-    /// commit, even though the HTTP status was 200.
+    /// commit, even though the HTTP status was 200. A reply with no `$summary`
+    /// object reports an error too: a node that processed the transaction
+    /// always sends one, so its absence is not a success.
     public var errors: [String] {
-        guard let list = summaryDict["errors"] as? [Any] else { return [] }
+        guard let summary = raw["$summary"] as? [String: Any] else {
+            return ["The response has no $summary object, so the outcome is unknown"]
+        }
+        guard let value = summary["errors"], !(value is NSNull) else { return [] }
+        guard let list = value as? [Any] else {
+            return ["The response's $summary.errors is not a list: \(value)"]
+        }
         return list.map { ($0 as? String) ?? String(describing: $0) }
     }
 
@@ -168,8 +176,10 @@ public struct LedgerResponse {
     /// Convenience: created + updated under one accessor.
     public var streams: (created: [StreamRef], updated: [StreamRef]) { (created, updated) }
 
-    /// Whether the transaction committed.
-    public var committed: Bool { errors.isEmpty && (commit == nil || commit! > 0) }
+    /// Whether the transaction committed: the reply has a `$summary` object
+    /// and its `errors` are absent or empty. (The HTTP status was already
+    /// checked to be 2xx and the body to be a JSON object before this exists.)
+    public var committed: Bool { errors.isEmpty }
 
     private static func refs(_ value: Any?) -> [StreamRef] {
         guard let list = value as? [Any] else { return [] }

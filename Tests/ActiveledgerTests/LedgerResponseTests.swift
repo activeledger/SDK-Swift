@@ -37,10 +37,43 @@ final class LedgerResponseTests: XCTestCase {
         XCTAssertFalse(r.committed)
     }
 
-    func testZeroCommitIsNotCommitted() throws {
+    // The rule does not look at the commit count, only at the errors.
+    func testCommitCountIsNotRequired() throws {
         let r = try response(#"{"$summary":{"total":3,"vote":3,"commit":0,"errors":[]}}"#)
         XCTAssertEqual(r.commit, 0)
+        XCTAssertTrue(r.committed)
+    }
+
+    func testEmptyObjectIsNotCommitted() throws {
+        let r = try response("{}")
         XCTAssertFalse(r.committed)
+        XCTAssertEqual(r.errors.count, 1)
+        XCTAssertTrue(r.errors[0].contains("$summary"), "\(r.errors)")
+    }
+
+    func testObjectWithoutSummaryIsNotCommitted() throws {
+        let r = try response(#"{"$umid":"u","$streams":{"new":[{"id":"s"}]}}"#)
+        XCTAssertFalse(r.committed)
+        XCTAssertFalse(r.errors.isEmpty)
+    }
+
+    func testNonObjectSummaryIsNotCommitted() throws {
+        for json in [#"{"$summary":"ok"}"#, #"{"$summary":[]}"#, #"{"$summary":null}"#] {
+            let r = try response(json)
+            XCTAssertFalse(r.committed, json)
+            XCTAssertFalse(r.errors.isEmpty, json)
+        }
+    }
+
+    func testSummaryWithoutErrorsKeyIsCommitted() throws {
+        XCTAssertTrue(try response(#"{"$summary":{}}"#).committed)
+        XCTAssertTrue(try response(#"{"$summary":{"errors":null}}"#).committed)
+    }
+
+    func testNonListErrorsIsNotCommitted() throws {
+        let r = try response(#"{"$summary":{"errors":"boom"}}"#)
+        XCTAssertFalse(r.committed)
+        XCTAssertFalse(r.errors.isEmpty)
     }
 
     func testMissingCommitWithNoErrorsCountsAsCommitted() throws {
@@ -55,7 +88,6 @@ final class LedgerResponseTests: XCTestCase {
         XCTAssertNil(r.total)
         XCTAssertNil(r.vote)
         XCTAssertNil(r.commit)
-        XCTAssertTrue(r.errors.isEmpty)
         XCTAssertTrue(r.created.isEmpty)
         XCTAssertTrue(r.updated.isEmpty)
         XCTAssertTrue(r.responses.isEmpty)
@@ -74,7 +106,7 @@ final class LedgerResponseTests: XCTestCase {
         """#)
         XCTAssertNil(r.umid)
         XCTAssertNil(r.commit)
-        XCTAssertTrue(r.errors.isEmpty)
+        XCTAssertFalse(r.committed)
         XCTAssertTrue(r.created.isEmpty)
         XCTAssertTrue(r.responses.isEmpty)
     }
