@@ -134,7 +134,16 @@ public enum Secp256k1 {
 
     /// `0x` + lowercase hex.
     public static func toHex(_ bytes: [UInt8]) -> String {
-        "0x" + bytes.map { String(format: "%02x", $0) }.joined()
+        let digits = Array("0123456789abcdef".utf8)
+        var out = [UInt8]()
+        out.reserveCapacity(2 + bytes.count * 2)
+        out.append(0x30) // "0"
+        out.append(0x78) // "x"
+        for b in bytes {
+            out.append(digits[Int(b >> 4)])
+            out.append(digits[Int(b & 0x0f)])
+        }
+        return String(decoding: out, as: UTF8.self)
     }
 
     /// Decode an `0x`-prefixed hex key. The prefix is required, not tolerated.
