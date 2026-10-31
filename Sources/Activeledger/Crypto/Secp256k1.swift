@@ -17,6 +17,13 @@ public enum Secp256k1 {
         0xba, 0xae, 0xdc, 0xe6, 0xaf, 0x48, 0xa0, 0x3b,
         0xbf, 0xd2, 0x5e, 0x8c, 0xd0, 0x36, 0x41, 0x41,
     ]
+    /// The field prime p, big-endian.
+    static let fieldPrime: [UInt8] = [
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0xff, 0xff, 0xfe, 0xff, 0xff, 0xfc, 0x2f,
+    ]
     /// n >> 1 (the low-S threshold), big-endian.
     static let halfOrder: [UInt8] = [
         0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
@@ -51,6 +58,40 @@ public enum Secp256k1 {
         return !isZero(d) && compare(d, order) < 0
     }
 
+    /// Check `publicKey` is a real secp256k1 point and return it as a library
+    /// key. Compressed (`02|03` + X, 33 bytes) and uncompressed (`04` + X + Y,
+    /// 65 bytes) are the only encodings accepted; X and Y must be below the
+    /// field prime p, and the point must be on the curve. That refuses the
+    /// point at infinity, all-zero encodings and the hybrid `06|07` forms.
+    static func parsePublicKey(_ publicKey: [UInt8]) throws -> P256K.Signing.PublicKey {
+        let format: P256K.Format
+        switch (publicKey.count, publicKey.first) {
+        case (publicCompressedBytes, 0x02), (publicCompressedBytes, 0x03):
+            format = .compressed
+        case (publicUncompressedBytes, 0x04):
+            format = .uncompressed
+        default:
+            throw ActiveledgerError.invalidArgument(
+                "secp256k1 public key must be 33 bytes starting 02/03 or 65 bytes starting 04, "
+                    + "got \(publicKey.count) bytes")
+        }
+        let coordinates = publicKey.dropFirst()
+        var offset = coordinates.startIndex
+        while offset < coordinates.endIndex {
+            let coordinate = Array(coordinates[offset..<offset + 32])
+            guard compare(coordinate, fieldPrime) < 0 else {
+                throw ActiveledgerError.invalidArgument(
+                    "secp256k1 public key has a coordinate that is not below the field prime")
+            }
+            offset += 32
+        }
+        do {
+            return try P256K.Signing.PublicKey(dataRepresentation: Data(publicKey), format: format)
+        } catch {
+            throw ActiveledgerError.invalidArgument("secp256k1 public key is not a point on the curve")
+        }
+    }
+
     // MARK: sign / verify
 
     /// Sign `message` (RFC 6979, low-S), returning DER bytes.
@@ -69,9 +110,7 @@ public enum Secp256k1 {
             guard !isZero(pad32(r)), compare(pad32(r), order) < 0,
                   !isZero(pad32(s)), compare(pad32(s), order) < 0 else { return false }
             let normalized = DER.encodeSignature(r: r, s: lowS(s))
-            let format: P256K.Format =
-                publicKey.count == publicCompressedBytes ? .compressed : .uncompressed
-            let pub = try P256K.Signing.PublicKey(dataRepresentation: Data(publicKey), format: format)
+            let pub = try parsePublicKey(publicKey)
             let sig = try P256K.Signing.ECDSASignature(derRepresentation: Data(normalized))
             return pub.isValidSignature(sig, for: message)
         } catch {

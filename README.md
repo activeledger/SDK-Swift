@@ -238,6 +238,8 @@ let loaded = try keys.importKey("keys/identity.json")
 ```
 
 The format is the JavaScript SDK's, so key files move between the two.
+`importKey` refuses a secp256k1 or ML-DSA key whose public half is not a valid
+point or does not belong to its private half.
 
 ## Signing elsewhere
 
@@ -253,7 +255,9 @@ Enclave or an HSM, or register a custom `PostQuantumScheme` with
 This SDK always sends it; if you hand-build an envelope, do the same.
 
 **A rejected transaction is HTTP 200.** Check `response.committed`, never the
-status code.
+status code. A reply counts as committed only if it is a JSON object with a
+`$summary` object whose `errors` are absent or empty; a `{}` reply, or one
+without `$summary`, is not committed and reports an error.
 
 **Errors are unhelpful by design.** A wrong type string, a wrong-length key or
 signed bytes differing by one escape all come back as **1220 "Signature

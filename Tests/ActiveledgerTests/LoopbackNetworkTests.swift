@@ -136,6 +136,16 @@ final class LoopbackNetworkTests: XCTestCase {
         }
     }
 
+    func testHTTP200WithoutSummaryIsNotCommitted() async throws {
+        for body in ["{}", #"{"$umid":"u"}"#] {
+            let server = try serve(body)
+            defer { server.stop() }
+            let response = try await Connection(url: server.url).sendTransaction(sampleTx())
+            XCTAssertFalse(response.committed, body)
+            XCTAssertFalse(response.errors.isEmpty, body)
+        }
+    }
+
     func testUnparseableReplyThrowsRatherThanReturning() async throws {
         let server = try serve("<html>not json</html>")
         defer { server.stop() }
