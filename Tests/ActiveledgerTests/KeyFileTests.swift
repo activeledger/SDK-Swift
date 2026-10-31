@@ -16,7 +16,7 @@ final class KeyFileTests: XCTestCase {
     // MARK: key file format
 
     func testDecodeRequiresType() {
-        let json = #"{"key":{"pub":{"pkcs8pem":"0x04aa"},"prv":{"pkcs8pem":"0xbb"}},"name":"id"}"#
+        let json = #"{"key":{"pub":{"pkcs8pem":"0x0479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8"},"prv":{"pkcs8pem":"0x0000000000000000000000000000000000000000000000000000000000000001"}},"name":"id"}"#
         XCTAssertThrowsError(try decode(json))
     }
 
@@ -28,7 +28,7 @@ final class KeyFileTests: XCTestCase {
     func testDecodeMapsBitcoinAndEthereumToSecp256k1AndReencodesAsSecp256k1() throws {
         for legacy in ["bitcoin", "ethereum"] {
             let key = try decode(
-                #"{"key":{"pub":{"pkcs8pem":"0x04aa"},"prv":{"pkcs8pem":"0xbb"}},"name":"id","type":"\#(legacy)"}"#)
+                #"{"key":{"pub":{"pkcs8pem":"0x0479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8"},"prv":{"pkcs8pem":"0x0000000000000000000000000000000000000000000000000000000000000001"}},"name":"id","type":"\#(legacy)"}"#)
             XCTAssertEqual(key.type, .secp256k1)
             let out = String(decoding: try JSONEncoder().encode(key), as: UTF8.self)
             XCTAssertTrue(out.contains(#""type":"secp256k1""#), out)
@@ -38,7 +38,7 @@ final class KeyFileTests: XCTestCase {
 
     func testDecodeRejectsMissingKeyHalf() {
         XCTAssertThrowsError(try decode(
-            #"{"key":{"pub":{"pkcs8pem":"0x04aa"}},"name":"id","type":"secp256k1"}"#))
+            #"{"key":{"pub":{"pkcs8pem":"0x0479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8"}},"name":"id","type":"secp256k1"}"#))
     }
 
     func testEncodedShapeMatchesJavaScriptSDK() throws {
@@ -186,5 +186,57 @@ final class KeyFileTests: XCTestCase {
 
     func testGenerateKeyRefusesRSA() {
         XCTAssertThrowsError(try keys.generateKey("legacy", type: .rsa))
+    }
+
+    // MARK: key pair consistency
+
+    private func fileJSON(type: String, pub: String, prv: String) -> String {
+        #"{"key":{"pub":{"pkcs8pem":"\#(pub)"},"prv":{"pkcs8pem":"\#(prv)"}},"name":"id","type":"\#(type)"}"#
+    }
+
+    private func assertMismatchRejected(_ type: KeyType, _ a: Key, _ b: Key, _ text: String) {
+        let json = fileJSON(type: type.wire, pub: a.key.publicKey, prv: b.key.privateKey)
+        XCTAssertThrowsError(try decode(json), text) { error in
+            XCTAssertTrue("\(error)".contains("does not belong"), "\(error)")
+        }
+    }
+
+    func testSecp256k1MismatchedPairIsRejected() throws {
+        let a = try keys.generateKey("a")
+        let b = try keys.generateKey("b")
+        assertMismatchRejected(.secp256k1, a, b, "uncompressed")
+        let c = try keys.generateKey("c", compressed: true)
+        let d = try keys.generateKey("d", compressed: true)
+        assertMismatchRejected(.secp256k1, c, d, "compressed")
+    }
+
+    func testSecp256k1PairWithMatchingScalarLoads() throws {
+        for compressed in [false, true] {
+            let key = try keys.generateKey("k", compressed: compressed)
+            let json = fileJSON(type: "secp256k1", pub: key.key.publicKey, prv: key.key.privateKey)
+            XCTAssertEqual(try decode(json).publicKey, key.publicKey)
+        }
+    }
+
+    func testSecp256k1OffCurvePublicKeyIsRejectedOnLoad() throws {
+        let key = try keys.generateKey("k")
+        var pub = try Secp256k1.fromHex(key.publicKey, "public")
+        pub[64] ^= 1
+        let json = fileJSON(type: "secp256k1", pub: Secp256k1.toHex(pub), prv: key.key.privateKey)
+        XCTAssertThrowsError(try decode(json))
+    }
+
+    func testMLDSAMismatchedPairIsRejected() throws {
+        let a = try keys.generateKey("a", type: .mlDsa65)
+        let b = try keys.generateKey("b", type: .mlDsa65)
+        assertMismatchRejected(.mlDsa65, a, b, "ml-dsa-65")
+    }
+
+    func testMLDSAPairLoadsAndWrongSizeIsRejected() throws {
+        let key = try keys.generateKey("a", type: .mlDsa65)
+        let good = fileJSON(type: "ml-dsa-65", pub: key.key.publicKey, prv: key.key.privateKey)
+        XCTAssertEqual(try decode(good).key, key.key)
+        let short = fileJSON(type: "ml-dsa-65", pub: "AAAA", prv: key.key.privateKey)
+        XCTAssertThrowsError(try decode(short))
     }
 }

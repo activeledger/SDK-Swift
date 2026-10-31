@@ -34,6 +34,45 @@ public struct KeyMaterial: Codable, Equatable, Sendable {
     }
 }
 
+extension KeyMaterial {
+    /// Throw unless the private and public halves belong together. secp256k1
+    /// (hex): the public key must be a valid point and equal the one derived
+    /// from the scalar. Post-quantum: a signature made with the private key
+    /// must verify under the public key (skipped when the scheme is not
+    /// registered, as with Falcon-512 without its add-on). PEM keys (RSA and
+    /// legacy) are not checked here.
+    func requireConsistent(type: KeyType) throws {
+        if type.isPostQuantum {
+            guard PostQuantum.isAvailable(type) else { return }
+            let scheme = try PostQuantum.scheme(for: type)
+            guard let pub = Data(base64Encoded: publicKey), pub.count == scheme.publicKeyBytes,
+                  let prv = Data(base64Encoded: privateKey), prv.count == scheme.privateKeyBytes else {
+                throw ActiveledgerError.invalidArgument(
+                    "\(type.wire) key pair is malformed: the public key must be base64 of "
+                        + "\(scheme.publicKeyBytes) bytes and the private key of \(scheme.privateKeyBytes)")
+            }
+            let probe = Data("activeledger key pair check".utf8)
+            let signature = try scheme.sign(probe, privateKey: prv)
+            guard scheme.verify(signature, message: probe, publicKey: pub) else {
+                throw ActiveledgerError.invalidArgument(
+                    "\(type.wire) public key does not belong to the private key")
+            }
+            return
+        }
+        guard type == .secp256k1, !publicKey.contains("-----BEGIN"),
+              !privateKey.contains("-----BEGIN") else { return }
+        let pub = try Secp256k1.fromHex(publicKey, "public")
+        _ = try Secp256k1.parsePublicKey(pub)
+        let derived = try Secp256k1.keyPair(
+            fromScalar: Secp256k1.fromHex(privateKey, "private"),
+            compressed: pub.count == Secp256k1.publicCompressedBytes).publicKey
+        guard derived == pub else {
+            throw ActiveledgerError.invalidArgument(
+                "secp256k1 public key does not belong to the private key")
+        }
+    }
+}
+
 /// A named key, and the identity (stream id) it controls once onboarded.
 ///
 /// Serialised the same way as the JavaScript SDK's `IKey`, so a key exported
@@ -71,6 +110,7 @@ public final class Key: Codable {
         // is, so a guess would be wrong in the worst way - require it.
         type = try KeyType.fromWire(c.decode(String.self, forKey: .type))
         key = try c.decode(KeyMaterial.self, forKey: .key)
+        try key.requireConsistent(type: type)
         identity = try c.decodeIfPresent(String.self, forKey: .identity)
         phrase = try c.decodeIfPresent(String.self, forKey: .phrase)
     }

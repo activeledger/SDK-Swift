@@ -73,7 +73,7 @@ final class KeyHandlerTests: XCTestCase {
 
     func testKeyFileRoundTrips() throws {
         let original = Key(name: "id", type: .secp256k1,
-                           key: KeyMaterial(publicKey: "0x04aa", privateKey: "0xbb"),
+                           key: KeyMaterial(publicKey: "0x0479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8", privateKey: "0x0000000000000000000000000000000000000000000000000000000000000001"),
                            identity: "streamid", phrase: nil)
         let data = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(Key.self, from: data)
@@ -85,13 +85,13 @@ final class KeyHandlerTests: XCTestCase {
 
     func testDecodesJavaScriptKeyFileShape() throws {
         let json = #"""
-        {"key":{"pub":{"pkcs8pem":"0x04aa"},"prv":{"pkcs8pem":"0xbb"}},"name":"id","type":"secp256k1"}
+        {"key":{"pub":{"pkcs8pem":"0x0479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8"},"prv":{"pkcs8pem":"0x0000000000000000000000000000000000000000000000000000000000000001"}},"name":"id","type":"secp256k1"}
         """#
         let key = try JSONDecoder().decode(Key.self, from: Data(json.utf8))
         XCTAssertEqual(key.name, "id")
         XCTAssertEqual(key.type, .secp256k1)
-        XCTAssertEqual(key.publicKey, "0x04aa")
-        XCTAssertEqual(key.key.privateKey, "0xbb")
+        XCTAssertEqual(key.publicKey, "0x0479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8")
+        XCTAssertEqual(key.key.privateKey, "0x0000000000000000000000000000000000000000000000000000000000000001")
     }
 
     func testExportImportRoundTrips() throws {
