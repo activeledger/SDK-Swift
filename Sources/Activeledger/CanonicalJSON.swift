@@ -183,48 +183,39 @@ func shortestDecimal(_ value: Double) -> (digits: String, n: Int) {
     return (digits, n)
 }
 
-/// JSON string escaping, matching `JSON.stringify` exactly: escapes `"`, `\`,
-/// the control characters below 0x20 (short forms where JS has them), and
-/// lone UTF-16 surrogates. Everything else passes through as raw UTF-8.
+/// JSON string escaping, matching `JSON.stringify` exactly: escapes `"`, `\`
+/// and the control characters below 0x20 (short forms where JS has them).
+/// Everything else passes through as raw UTF-8. A Swift `String` is always
+/// well-formed Unicode, so it cannot hold the lone UTF-16 surrogates that
+/// `JSON.stringify` would escape. Every character that needs escaping is
+/// ASCII, so the UTF-8 bytes are scanned and the runs between them are copied
+/// whole.
 private func writeString(_ value: String, into out: inout String) {
     out += "\""
-    let units = Array(value.utf16)
-    var i = 0
-    while i < units.count {
-        let c = units[i]
-        switch c {
-        case 0x22: out += "\\\""
-        case 0x5c: out += "\\\\"
-        case 0x0a: out += "\\n"
-        case 0x0d: out += "\\r"
-        case 0x09: out += "\\t"
-        case 0x08: out += "\\b"
-        case 0x0c: out += "\\f"
-        default:
-            if c < 0x20 {
-                out += "\\u" + hex4(c)
-            } else if c >= 0xd800 && c <= 0xdbff {
-                // High surrogate: only well-formed followed by a low one.
-                // Recombine the pair into its scalar so the emitted UTF-8
-                // matches JavaScript passing the character through.
-                if i + 1 < units.count && units[i + 1] >= 0xdc00 && units[i + 1] <= 0xdfff {
-                    let hi = UInt32(c)
-                    let lo = UInt32(units[i + 1])
-                    let scalar = 0x10000 + ((hi - 0xd800) << 10) + (lo - 0xdc00)
-                    out.unicodeScalars.append(Unicode.Scalar(scalar)!)
-                    i += 1
-                } else {
-                    out += "\\u" + hex4(c)
-                }
-            } else if c >= 0xdc00 && c <= 0xdfff {
-                out += "\\u" + hex4(c)
-            } else {
-                if let scalar = Unicode.Scalar(c) {
-                    out.unicodeScalars.append(scalar)
-                }
+    var value = value
+    value.withUTF8 { bytes in
+        var runStart = 0
+        for i in 0..<bytes.count {
+            let c = bytes[i]
+            guard c < 0x20 || c == 0x22 || c == 0x5c else { continue }
+            if runStart < i {
+                out += String(decoding: UnsafeBufferPointer(rebasing: bytes[runStart..<i]), as: UTF8.self)
+            }
+            runStart = i + 1
+            switch c {
+            case 0x22: out += "\\\""
+            case 0x5c: out += "\\\\"
+            case 0x0a: out += "\\n"
+            case 0x0d: out += "\\r"
+            case 0x09: out += "\\t"
+            case 0x08: out += "\\b"
+            case 0x0c: out += "\\f"
+            default: out += "\\u" + hex4(UInt16(c))
             }
         }
-        i += 1
+        if runStart < bytes.count {
+            out += String(decoding: UnsafeBufferPointer(rebasing: bytes[runStart..<bytes.count]), as: UTF8.self)
+        }
     }
     out += "\""
 }
