@@ -76,9 +76,11 @@ Anything the shorthands do not cover is a handler call away.
 | RSA (legacy) | `rsa` | PEM | PEM | 256 for 2048-bit | PEM |
 
 Use **secp256k1** unless the identity must outlive a cryptographically
-relevant quantum computer: roughly **22x smaller** per transaction than
-ML-DSA-65, and every byte is stored on the ledger permanently and replicated
-to every node. Between the post-quantum schemes, **Falcon-512** signatures are
+relevant quantum computer. Measured from this SDK over 300 generated keys per
+type: a secp256k1 signature is 70-71 bytes (DER) and an uncompressed public key
+65 bytes; an ML-DSA-65 signature is 3309 bytes and its public key 1952 bytes.
+Every byte is stored on the ledger permanently and replicated to every node.
+Between the post-quantum schemes, **Falcon-512** signatures are
 about a fifth the size of ML-DSA-65's; ML-DSA-65 is the finalised standard.
 
 ```swift
