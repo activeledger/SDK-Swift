@@ -248,7 +248,40 @@ final class LoopbackNetworkTests: XCTestCase {
             XCTFail("expected a throw")
         } catch {
             XCTAssertEqual(error as? ActiveledgerError, .onboard(
-                message: "Onboarding \"me\" created no identity: 1220 Signature Incorrect"))
+                message: "Onboarding \"me\" was not committed: 1220 Signature Incorrect"))
+        }
+        XCTAssertNil(key.identity)
+    }
+
+    // A stream id alone is not enough: the transaction must have committed.
+    func testOnboardKeyWithStreamButErrorsThrowsAndLeavesIdentityUnset() async throws {
+        let server = try serve(
+            #"{"$umid":"u","$summary":{"total":1,"vote":1,"commit":1,"errors":["late failure"]},"# +
+            #""$streams":{"new":[{"id":"stream-abc","name":"me"}]}}"#)
+        defer { server.stop() }
+        let key = try keys.generateKey("me")
+        do {
+            try await keys.onboardKey(key, connection: Connection(url: server.url))
+            XCTFail("expected a throw")
+        } catch {
+            XCTAssertEqual(error as? ActiveledgerError,
+                           .onboard(message: "Onboarding \"me\" was not committed: late failure"))
+        }
+        XCTAssertNil(key.identity)
+    }
+
+    func testOnboardKeyWithEmptyObjectThrowsNotCommitted() async throws {
+        let server = try serve("{}")
+        defer { server.stop() }
+        let key = try keys.generateKey("me")
+        do {
+            try await keys.onboardKey(key, connection: Connection(url: server.url))
+            XCTFail("expected a throw")
+        } catch {
+            guard case .onboard(let message) = error as? ActiveledgerError else {
+                return XCTFail("expected ActiveledgerError.onboard, got \(error)")
+            }
+            XCTAssertTrue(message.hasPrefix("Onboarding \"me\" was not committed: "), message)
         }
         XCTAssertNil(key.identity)
     }
