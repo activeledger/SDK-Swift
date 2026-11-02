@@ -26,7 +26,7 @@ Requires Swift 5.9+ and one of: iOS 15, macOS 12, tvOS 15, watchOS 8, or Linux.
 Swift Package Manager - add the dependency to `Package.swift`:
 
 ```swift
-.package(url: "https://github.com/activeledger/SDK-Swift.git", from: "1.0.2")
+.package(url: "https://github.com/activeledger/SDK-Swift.git", from: "1.1.0")
 ```
 
 and the product to your target:
